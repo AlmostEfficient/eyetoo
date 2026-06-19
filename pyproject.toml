@@ -1,0 +1,20 @@
+[project]
+name = "eyetoo"
+version = "0.1.0"
+description = "Local on-demand image pipeline: background removal and upscaling."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pillow>=10",
+  "rembg[cpu,cli]>=2.0.67",
+]
+
+[project.scripts]
+eyetoo = "eyetoo.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true

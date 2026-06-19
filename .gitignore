@@ -1,0 +1,16 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Downloaded native toolchain. Install with bin/install-realesrgan.
+tools/realesrgan-ncnn-vulkan/
+
+# Local outputs.
+out/
+outputs/
+artifacts/
