@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Non-interactive SSH gets a bare PATH; find uv where Homebrew or the uv installer put it.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 exec uv run eyetoo "$@"

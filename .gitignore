@@ -14,3 +14,6 @@ tools/realesrgan-ncnn-vulkan/
 out/
 outputs/
 artifacts/
+
+# Compiled Apple Vision helper.
+tools/lift/

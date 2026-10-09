@@ -1,6 +1,6 @@
 ---
 name: "eyetoo"
-description: "Use when the user asks to remove image backgrounds, upscale images, or run a local on-demand image processing pipeline with eyetoo. Supports local background removal via rembg and image upscaling via Real-ESRGAN or Pillow fallback, especially for files in PNG, JPG, JPEG, WEBP, TIFF, BMP formats."
+description: "Use when the user asks to remove image backgrounds, upscale images, or run a local on-demand image processing pipeline with eyetoo. Supports local background removal (RMBG-2.0 via rembg, or Apple Vision with --fast) and image upscaling via Real-ESRGAN or Pillow fallback, especially for files in PNG, JPG, JPEG, WEBP, TIFF, BMP formats."
 ---
 
 # eyetoo
@@ -25,6 +25,7 @@ Run commands from the project directory:
 uv sync
 bin/eyetoo doctor
 bin/eyetoo bg-remove input.jpg -o ./out
+bin/eyetoo bg-remove input.jpg --fast -o ./out
 bin/eyetoo upscale input.png -s 4 -o ./out
 bin/eyetoo pipeline input.jpg -s 4 -o ./out
 bin/eyetoo install-realesrgan
@@ -32,7 +33,15 @@ bin/eyetoo install-realesrgan
 
 Use `pipeline` when the user wants both background removal and upscaling. Use `bg-remove` or `upscale` for single-step work.
 
-## Engines
+## Background Removal
+
+Default model is `bria-rmbg` (RMBG-2.0): best edges in testing, about 10s per image on an M4 CPU, ~1GB download on first use. Use it unless the user wants speed over quality.
+
+Use `--fast` for quick previews or big batches where edges don't matter: Apple Vision subject lift, about 0.1s per image, no download, but leaves a faint halo around hair and sometimes keeps extra objects.
+
+If `bria-rmbg` gets an image wrong, retry with `--model birefnet-general` (also the pick for commercial work, since RMBG-2.0 weights are non-commercial).
+
+## Upscale Engines
 
 Prefer `--engine auto` unless the user asks for a specific engine. Auto tries Real-ESRGAN first and falls back to Pillow/Lanczos if the native upscaler is unavailable.
 

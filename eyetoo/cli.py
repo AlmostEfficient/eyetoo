@@ -13,6 +13,11 @@ UPSCALE_BIN = UPSCALE_DIR / "realesrgan-ncnn-vulkan"
 UPSCALE_MODELS = UPSCALE_DIR / "models"
 UPSCALE_MODEL_EXTS = {".param", ".bin"}
 REALESRGAN_RELEASE_API = "https://api.github.com/repos/xinntao/Real-ESRGAN/releases/tags/v0.2.5.0"
+# RMBG-2.0 won a side-by-side against birefnet, isnet, u2net and Apple Vision (cleanest edges, fewest leaks).
+# Its weights are CC BY-NC: fine for personal use, swap to birefnet-general (MIT) for commercial work.
+DEFAULT_BG_MODEL = "bria-rmbg"
+LIFT_SRC = Path(__file__).resolve().parent / "lift.swift"
+LIFT_BIN = TOOL_ROOT / "tools/lift/eyetoo-lift"
 
 
 def ensure_out(p: str | None) -> Path:
@@ -28,13 +33,35 @@ def out_name(inp: Path, out: Path, suffix: str, ext: str = ".png", rel: Path | N
     return target
 
 
-def bg_remove_one(inp: Path, out: Path, model: str = "u2net", rel: Path | None = None) -> Path:
-    from rembg import new_session, remove
-    session = new_session(model)
+def ensure_lift() -> Path:
+    """Compile the Apple Vision subject-lift helper on first use (and after the source changes)."""
+    if LIFT_BIN.exists() and LIFT_BIN.stat().st_mtime >= LIFT_SRC.stat().st_mtime:
+        return LIFT_BIN
+    if not shutil.which("swiftc"):
+        raise FileNotFoundError("--fast needs swiftc (xcode-select --install)")
+    LIFT_BIN.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["swiftc", "-O", str(LIFT_SRC), "-o", str(LIFT_BIN)], check=True)
+    return LIFT_BIN
+
+
+def bg_session(model: str, fast: bool = False):
+    """Load the model once per run; callers pass the result to every bg_remove_one call."""
+    if fast:
+        return ensure_lift()
+    from rembg import new_session
+    return new_session(model)
+
+
+def bg_remove_one(inp: Path, out: Path, session, rel: Path | None = None) -> Path:
     output = out_name(inp, out, "-bgremoved", rel=rel)
-    data = inp.read_bytes()
-    res = remove(data, session=session)
-    output.write_bytes(res)
+    if isinstance(session, Path):
+        try:
+            subprocess.run([str(session), str(inp), str(output)], check=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Apple Vision timed out; the Neural Engine is busy (ANECompilerService), drop --fast or retry later")
+        return output
+    from rembg import remove
+    output.write_bytes(remove(inp.read_bytes(), session=session))
     return output
 
 
@@ -71,9 +98,10 @@ def bg_cmd(args):
         images = collect_images(src)
     except (FileNotFoundError, ValueError) as e:
         return report_input_error(e)
+    session = bg_session(args.model, args.fast)
     made = []
     for img, rel in images:
-        made.append(bg_remove_one(img, out, args.model, rel))
+        made.append(bg_remove_one(img, out, session, rel))
     for p in made: print(p)
     return 0
 
@@ -119,11 +147,11 @@ def up_cmd(args):
     return 0
 
 
-def pipeline_one(inp: Path, rel: Path, out: Path, args) -> Path:
+def pipeline_one(inp: Path, rel: Path, out: Path, args, session) -> Path:
     """Remove background into a temp folder, then upscale into the final output."""
     tmp = out / ".tmp-bg"
     tmp.mkdir(parents=True, exist_ok=True)
-    bg_out = bg_remove_one(inp, tmp, args.model, rel)
+    bg_out = bg_remove_one(inp, tmp, session, rel)
     bg_rel = rel.parent / f"{rel.stem}-bgremoved.png"
     try:
         if args.engine == "realesrgan":
@@ -147,7 +175,8 @@ def pipeline_cmd(args):
         images = collect_images(src)
     except (FileNotFoundError, ValueError) as e:
         return report_input_error(e)
-    made = [pipeline_one(img, rel, out, args) for img, rel in images]
+    session = bg_session(args.model, args.fast)
+    made = [pipeline_one(img, rel, out, args, session) for img, rel in images]
     for p in made:
         print(p)
     return 0
@@ -222,6 +251,8 @@ def doctor_cmd(args):
         print("rembg: available")
     except Exception as e:
         print(f"rembg: unavailable ({e})")
+    print(f"bg model: {DEFAULT_BG_MODEL} (downloads on first use)")
+    print(f"fast bg (Apple Vision): {'ready' if LIFT_BIN.exists() else 'compiles on first --fast run' if shutil.which('swiftc') else 'unavailable, needs swiftc'}")
     if UPSCALE_BIN.exists():
         print(f"Real-ESRGAN: installed at {UPSCALE_BIN}")
         if has_realesrgan_models():
@@ -238,9 +269,9 @@ def doctor_cmd(args):
 def main(argv=None):
     p=argparse.ArgumentParser(prog="eyetoo", description="Local image bg removal/upscaling pipeline")
     sub=p.add_subparsers(required=True)
-    bg=sub.add_parser("bg-remove", aliases=["bg"]); bg.add_argument("input"); bg.add_argument("-o","--output"); bg.add_argument("--model", default="u2net"); bg.set_defaults(func=bg_cmd)
+    bg=sub.add_parser("bg-remove", aliases=["bg"]); bg.add_argument("input"); bg.add_argument("-o","--output"); bg.add_argument("--model", default=DEFAULT_BG_MODEL); bg.add_argument("--fast", action="store_true", help="Apple Vision subject lift: ~0.1s/image, rougher hair edges"); bg.set_defaults(func=bg_cmd)
     up=sub.add_parser("upscale", aliases=["up"]); up.add_argument("input"); up.add_argument("-o","--output"); up.add_argument("-s","--scale", type=int, default=4, choices=[2,3,4]); up.add_argument("--engine", choices=["auto","realesrgan","pillow"], default="auto"); up.add_argument("--model", default="realesrgan-x4plus"); up.set_defaults(func=up_cmd)
-    pipe=sub.add_parser("pipeline", aliases=["pipe"]); pipe.add_argument("input"); pipe.add_argument("-o","--output"); pipe.add_argument("-s","--scale", type=int, default=4, choices=[2,3,4]); pipe.add_argument("--model", default="u2net"); pipe.add_argument("--engine", choices=["auto","realesrgan","pillow"], default="auto"); pipe.add_argument("--upscale-model", default="realesrgan-x4plus"); pipe.add_argument("--keep-tmp", action="store_true"); pipe.set_defaults(func=pipeline_cmd)
+    pipe=sub.add_parser("pipeline", aliases=["pipe"]); pipe.add_argument("input"); pipe.add_argument("-o","--output"); pipe.add_argument("-s","--scale", type=int, default=4, choices=[2,3,4]); pipe.add_argument("--model", default=DEFAULT_BG_MODEL); pipe.add_argument("--fast", action="store_true"); pipe.add_argument("--engine", choices=["auto","realesrgan","pillow"], default="auto"); pipe.add_argument("--upscale-model", default="realesrgan-x4plus"); pipe.add_argument("--keep-tmp", action="store_true"); pipe.set_defaults(func=pipeline_cmd)
     install=sub.add_parser("install-realesrgan"); install.add_argument("--install-root"); install.add_argument("--force", action="store_true"); install.set_defaults(func=install_realesrgan_cmd)
     d=sub.add_parser("doctor"); d.set_defaults(func=doctor_cmd)
     args=p.parse_args(argv)

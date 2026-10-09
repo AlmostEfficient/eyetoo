@@ -6,7 +6,7 @@ It ships as an agent skill, so you don't run it by hand. You install it once, th
 
 ## What it lets your agent do
 
-- **Remove backgrounds** — local `rembg`, works on single images or whole folders
+- **Remove backgrounds** — RMBG-2.0 by default for the cleanest edges, or `--fast` for Apple's built-in subject lift (near instant, rougher hair). Single images or whole folders
 - **Upscale** — Real-ESRGAN AI super-resolution, with a Pillow/Lanczos fallback if the native binary isn't installed
 - **Both at once** — background removal then upscale, in one pass
 - Handles `.png .jpg .jpeg .webp .tif .tiff .bmp`, single files or recursive folders
